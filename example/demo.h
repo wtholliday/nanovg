@@ -13,7 +13,7 @@ struct DemoData {
 };
 typedef struct DemoData DemoData;
 
-int loadDemoData(NVGcontext* vg, DemoData* data);
+int loadDemoData(NVGcontext* vg, DemoData* data, const char* dir);
 void freeDemoData(NVGcontext* vg, DemoData* data);
 void renderDemo(NVGcontext* vg, float mx, float my, float width, float height, float t, int blowup, DemoData* data);
 
