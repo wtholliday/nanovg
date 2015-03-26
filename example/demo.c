@@ -1207,7 +1207,8 @@ void saveScreenShot(int w, int h, int premult, const char* name)
 	unsigned char* image = (unsigned char*)malloc(w*h*4);
 	if (image == NULL)
 		return;
-	glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, image);
+  // XXX: on iOS, GL_RGBA is undefined here
+	// glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, image);
 	if (premult)
 		unpremultiplyAlpha(image, w, h, w*4);
 	else
