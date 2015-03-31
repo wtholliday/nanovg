@@ -631,9 +631,12 @@ static int glnvg__renderCreate(void* uptr)
 		"		color *= scissor;\n"
 		"		result = color * innerCol;\n"
 		"	}\n"
+// Discard is really bad on iOS.
+#ifndef TARGET_OS_IPHONE
 		"#ifdef EDGE_AA\n"
 		"	if (strokeAlpha < strokeThr) discard;\n"
 		"#endif\n"
+#endif
 		"#ifdef NANOVG_GL3\n"
 		"	outColor = result;\n"
 		"#else\n"
