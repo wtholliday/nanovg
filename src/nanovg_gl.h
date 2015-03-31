@@ -1090,6 +1090,10 @@ static void glnvg__renderFlush(void* uptr)
 		glStencilFunc(GL_ALWAYS, 0, 0xffffffff);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, 0);
+#ifdef TARGET_OS_IPHONE
+    // Avoid performance analysis warning on iOS.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+#endif
 		#if NANOVG_GL_USE_STATE_FILTER
 		gl->boundTexture = 0;
 		gl->stencilMask = 0xffffffff;
