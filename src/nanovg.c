@@ -196,7 +196,7 @@ static void nvg__setDevicePixelRatio(NVGcontext* ctx, float ratio)
 {
 	ctx->tessTol = 0.25f / ratio;
 	ctx->distTol = 0.01f / ratio;
-	ctx->fringeWidth = 1.0f / ratio;
+	ctx->fringeWidth = 2.0f / ratio;
 	ctx->devicePxRatio = ratio;
 }
 
