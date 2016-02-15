@@ -175,7 +175,7 @@ int main()
 		return -1;
 	}
 
-	if (!loadFonts(vg) == -1) {
+	if (loadFonts(vg) == -1) {
 		printf("Could not load fonts\n");
 		return -1;
 	}
@@ -259,7 +259,7 @@ int main()
 		glfwPollEvents();
 	}
 
-	nvgluDeleteFramebuffer(vg, fb);
+	nvgluDeleteFramebuffer(fb);
 
 	nvgDeleteGL3(vg);
 
