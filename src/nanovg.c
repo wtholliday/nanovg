@@ -303,6 +303,10 @@ void nvgBeginFrame(NVGcontext* ctx, int windowWidth, int windowHeight, float dev
 	ctx->textTriCount = 0;
 }
 
+float nvgDevicePixelRatio(NVGcontext* ctx) {
+  return ctx->devicePxRatio;
+}
+
 void nvgCancelFrame(NVGcontext* ctx)
 {
 	ctx->params.renderCancel(ctx->params.userPtr);
