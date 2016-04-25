@@ -119,8 +119,8 @@ typedef struct {
 
 typedef struct {
   NVGbezierPath path;
-  float pts[2048];
-  int flags[1024];
+  float *pts;
+  int *flags;
   int npts;
 } BezierCacheLine;
 
@@ -269,8 +269,12 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
   
   // Init path cache.
   for(int i=0;i<BEZIER_CACHE_SIZE;++i) {
-    for(int j=0;j<BEZIER_BUCKET_SIZE;++j)
-      ctx->bezierCache[i][j].npts = 0;
+    for(int j=0;j<BEZIER_BUCKET_SIZE;++j) {
+      BezierCacheLine* l = &(ctx->bezierCache[i][j]);
+      l->npts = 0;
+      l->pts = malloc(sizeof(float) * 2048);
+      l->flags = malloc(sizeof(float*) * 1024);
+    }
   }
 
 	return ctx;
@@ -1296,6 +1300,13 @@ static void nvg__tesselateBezierCache(NVGcontext* ctx,
       
       for(int i=0;i<l->npts;++i) {
         nvg__addPoint(ctx, l->pts[2*i], l->pts[2*i+1], l->flags[i]);
+      }
+      
+      // Swap to the first position if necessary.
+      if(i > 0) {
+        BezierCacheLine tmp = *l;
+        *l = ctx->bezierCache[idx][0];
+        ctx->bezierCache[idx][0] = tmp;
       }
       
       return;
