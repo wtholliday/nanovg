@@ -49,7 +49,8 @@
 
 #define NVG_COUNTOF(arr) (sizeof(arr) / sizeof(0[arr]))
 
-#define BEZIER_CACHE_SIZE (1024)
+#define BEZIER_CACHE 1
+#define BEZIER_CACHE_SIZE (2048)
 #define BEZIER_BUCKET_SIZE 10
 
 enum NVGcommands {
@@ -144,7 +145,9 @@ struct NVGcontext {
 	int fillTriCount;
 	int strokeTriCount;
 	int textTriCount;
+#if BEZIER_CACHE
   BezierCacheLine bezierCache[BEZIER_CACHE_SIZE][BEZIER_BUCKET_SIZE];
+#endif
 };
 
 static float nvg__sqrtf(float a) { return sqrtf(a); }
@@ -267,6 +270,7 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	if (ctx->fontImages[0] == 0) goto error;
 	ctx->fontImageIdx = 0;
   
+#if BEZIER_CACHE
   // Init path cache.
   for(int i=0;i<BEZIER_CACHE_SIZE;++i) {
     for(int j=0;j<BEZIER_BUCKET_SIZE;++j) {
@@ -276,6 +280,7 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
       l->flags = malloc(sizeof(float*) * 1024);
     }
   }
+#endif
 
 	return ctx;
 
@@ -1228,10 +1233,14 @@ static void nvg__tesselateBezier(NVGcontext* ctx, BezierCacheLine* cache,
 	d3 = nvg__absf(((x3 - x4) * dy - (y3 - y4) * dx));
 
 	if ((d2 + d3)*(d2 + d3) < ctx->tessTol * (dx*dx + dy*dy)) {
-    cache->pts[cache->npts*2] = x4;
-    cache->pts[cache->npts*2+1] = y4;
-    cache->flags[cache->npts] = type;
-    cache->npts++;
+    
+    if(cache) {
+      cache->pts[cache->npts*2] = x4;
+      cache->pts[cache->npts*2+1] = y4;
+      cache->flags[cache->npts] = type;
+      cache->npts++;
+    }
+    
 		nvg__addPoint(ctx, x4, y4, type);
 		return;
 	}
@@ -1278,6 +1287,7 @@ static int nvg__bezierEquals(NVGbezierPath* b0, NVGbezierPath *b1)
       && b0->x4 == b1->x4 && b0->y4 == b1->y4;
 }
 
+#if BEZIER_CACHE
 static void nvg__tesselateBezierCache(NVGcontext* ctx,
                                  float x1, float y1, float x2, float y2,
                                  float x3, float y3, float x4, float y4,
@@ -1324,6 +1334,7 @@ static void nvg__tesselateBezierCache(NVGcontext* ctx,
   nvg__tesselateBezier(ctx, l, x1, y1, x2, y2, x3, y3, x4, y4, level, type);
   
 }
+#endif
 
 static void nvg__flattenPaths(NVGcontext* ctx)
 {
@@ -1365,7 +1376,11 @@ static void nvg__flattenPaths(NVGcontext* ctx)
 				cp1 = &ctx->commands[i+1];
 				cp2 = &ctx->commands[i+3];
 				p = &ctx->commands[i+5];
+#if BEZIER_CACHE
 				nvg__tesselateBezierCache(ctx, last->x,last->y, cp1[0],cp1[1], cp2[0],cp2[1], p[0],p[1], 0, NVG_PT_CORNER);
+#else
+        nvg__tesselateBezier(ctx, NULL, last->x,last->y, cp1[0],cp1[1], cp2[0],cp2[1], p[0],p[1], 0, NVG_PT_CORNER);
+#endif
 			}
 			i += 7;
 			break;
