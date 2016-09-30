@@ -21,6 +21,8 @@
 #include <math.h>
 #include <memory.h>
 #include <limits.h>
+#include <map>
+#include <vector>
 
 #include "nanovg.h"
 #define FONTSTASH_IMPLEMENTATION
@@ -52,6 +54,8 @@
 #define BEZIER_CACHE 1
 #define BEZIER_CACHE_SIZE (2048)
 #define BEZIER_BUCKET_SIZE 10
+
+extern "C" {
 
 enum NVGcommands {
 	NVG_MOVETO = 0,
@@ -120,10 +124,13 @@ typedef struct {
 
 typedef struct {
   NVGbezierPath path;
-  float *pts;
-  int *flags;
-  int npts;
+  std::vector<float> pts;
+  std::vector<int> flags;
+  int npts = 0;
+  int lastFrame = 0;
 } BezierCacheLine;
+  
+  using BezierCache = std::vector< std::vector<BezierCacheLine> >;
 
 struct NVGcontext {
 	NVGparams params;
@@ -146,7 +153,8 @@ struct NVGcontext {
 	int strokeTriCount;
 	int textTriCount;
 #if BEZIER_CACHE
-  BezierCacheLine bezierCache[BEZIER_CACHE_SIZE][BEZIER_BUCKET_SIZE];
+  int frames;
+  BezierCache* bezierCache;
 #endif
 };
 
@@ -228,7 +236,7 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 {
   printf("NVGcontext size: %lu\n", sizeof(NVGcontext));
 	FONSparams fontParams;
-	NVGcontext* ctx = (NVGcontext*)malloc(sizeof(NVGcontext));
+  NVGcontext* ctx = (NVGcontext*) malloc(sizeof(NVGcontext));
 	int i;
 	if (ctx == NULL) goto error;
 	memset(ctx, 0, sizeof(NVGcontext));
@@ -270,18 +278,11 @@ NVGcontext* nvgCreateInternal(NVGparams* params)
 	if (ctx->fontImages[0] == 0) goto error;
 	ctx->fontImageIdx = 0;
   
+  // Create bezier cache.
 #if BEZIER_CACHE
-  // Init path cache.
-  for(int i=0;i<BEZIER_CACHE_SIZE;++i) {
-    for(int j=0;j<BEZIER_BUCKET_SIZE;++j) {
-      BezierCacheLine* l = &(ctx->bezierCache[i][j]);
-      l->npts = 0;
-      l->pts = malloc(sizeof(float) * 2048);
-      l->flags = malloc(sizeof(float*) * 1024);
-    }
-  }
+  ctx->bezierCache = new BezierCache{100*100};
 #endif
-
+  
 	return ctx;
 
 error:
@@ -313,8 +314,12 @@ void nvgDeleteInternal(NVGcontext* ctx)
 
 	if (ctx->params.renderDelete != NULL)
 		ctx->params.renderDelete(ctx->params.userPtr);
-
-	free(ctx);
+  
+#if BEZIER_CACHE
+  delete ctx->bezierCache;
+#endif
+  
+  free(ctx);;
 }
 
 void nvgBeginFrame(NVGcontext* ctx, int windowWidth, int windowHeight, float devicePixelRatio)
@@ -375,6 +380,16 @@ void nvgEndFrame(NVGcontext* ctx)
 		for (i = j; i < NVG_MAX_FONTIMAGES; i++)
 			ctx->fontImages[i] = 0;
 	}
+  
+#if BEZIER_CACHE
+  // Clear unused paths from the cache.
+  for(auto& vec : (*ctx->bezierCache)) {
+    vec.erase(std::remove_if(vec.begin(), vec.end(), [ctx](auto& l) { return l.lastFrame != ctx->frames; }),
+              vec.end());
+  }
+  ctx->frames++;
+#endif
+  
 }
 
 NVGcolor nvgRGB(unsigned char r, unsigned char g, unsigned char b)
@@ -1235,9 +1250,9 @@ static void nvg__tesselateBezier(NVGcontext* ctx, BezierCacheLine* cache,
 	if ((d2 + d3)*(d2 + d3) < ctx->tessTol * (dx*dx + dy*dy)) {
     
     if(cache) {
-      cache->pts[cache->npts*2] = x4;
-      cache->pts[cache->npts*2+1] = y4;
-      cache->flags[cache->npts] = type;
+      cache->pts.push_back(x4);
+      cache->pts.push_back(y4);
+      cache->flags.push_back(type);
       cache->npts++;
     }
     
@@ -1259,79 +1274,45 @@ static void nvg__tesselateBezier(NVGcontext* ctx, BezierCacheLine* cache,
 	nvg__tesselateBezier(ctx, cache, x1234,y1234, x234,y234, x34,y34, x4,y4, level+1, type);
 }
 
-unsigned long
-hash(unsigned char *str, int len)
-{
-  unsigned long hash = 5381;
-  
-  for(int i=0;i<len;++i)
-    hash = ((hash << 5) + hash) + str[i]; /* hash * 33 + c */
-  
-  return hash;
-}
-
-unsigned int hashf(float f) {
-  union {
-    float f;
-    int i;
-  } u;
-  u.f = f;
-  return u.i;
-}
-
-static int nvg__bezierEquals(NVGbezierPath* b0, NVGbezierPath *b1)
-{
-  return b0->x1 == b1->x1 && b0->y1 == b1->y1
-      && b0->x2 == b1->x2 && b0->y2 == b1->y2
-      && b0->x3 == b1->x3 && b0->y3 == b1->y3
-      && b0->x4 == b1->x4 && b0->y4 == b1->y4;
-}
-
 #if BEZIER_CACHE
+  
 static void nvg__tesselateBezierCache(NVGcontext* ctx,
                                  float x1, float y1, float x2, float y2,
-                                 float x3, float y3, float x4, float y4,
-                                 int level, int type)
+                                 float x3, float y3, float x4, float y4, int type)
 {
   NVGbezierPath path = {x1,y1,x2,y2,x3,y3,x4,y4};
   
-  unsigned long h = hash((unsigned char*) &path, sizeof(NVGbezierPath));
-  unsigned long idx = h % BEZIER_CACHE_SIZE;
-  // unsigned long idx = (hashf(x1) + hashf(y1)) % BEZIER_CACHE_SIZE;
+  // 100x100 regular grid
+  unsigned int x = ((unsigned int) fabsf(x1)) % 100;
+  unsigned int y = ((unsigned int) fabsf(y1)) % 100;
   
-  BezierCacheLine *l;
+  //printf("%d %d\n", x, y);
   
-  for(int i=0;i<BEZIER_BUCKET_SIZE;++i) {
-    
-    l = &(ctx->bezierCache[idx][i]);
-    
-    if(nvg__bezierEquals(&path, &l->path)) {
-      //printf("hit\n");
+  auto& vec = (*ctx->bezierCache)[ x + y*100 ];
+  
+  //printf("size: %lu\n", vec.size());
+  
+  for(auto& l : vec) {
+    if(memcmp(&path, &l.path, sizeof(NVGbezierPath)) == 0) {
+      l.lastFrame = ctx->frames;
       
-      for(int i=0;i<l->npts;++i) {
-        nvg__addPoint(ctx, l->pts[2*i], l->pts[2*i+1], l->flags[i]);
+      for(int i=0;i<l.npts;++i) {
+        nvg__addPoint(ctx, l.pts[2*i], l.pts[2*i+1], l.flags[i]);
       }
       
-      // Swap to the first position if necessary.
-      if(i > 0) {
-        BezierCacheLine tmp = *l;
-        *l = ctx->bezierCache[idx][0];
-        ctx->bezierCache[idx][0] = tmp;
-      }
-      
+      printf("hit\n");
       return;
-
     }
-    
   }
   
-  // Choose a slot to replace based on the hash.
-  l = &(ctx->bezierCache[idx][h%10]);
+  printf("miss\n");
   
-  //printf("miss\n");
-  l->path = path;
-  l->npts = 0;
-  nvg__tesselateBezier(ctx, l, x1, y1, x2, y2, x3, y3, x4, y4, level, type);
+  vec.push_back(BezierCacheLine());
+  auto& l = vec.back();
+  l.path = path;
+  l.lastFrame = ctx->frames;
+  
+  nvg__tesselateBezier(ctx, &l, x1, y1, x2, y2, x3, y3, x4, y4, 0, type);
   
 }
 #endif
@@ -1377,7 +1358,7 @@ static void nvg__flattenPaths(NVGcontext* ctx)
 				cp2 = &ctx->commands[i+3];
 				p = &ctx->commands[i+5];
 #if BEZIER_CACHE
-				nvg__tesselateBezierCache(ctx, last->x,last->y, cp1[0],cp1[1], cp2[0],cp2[1], p[0],p[1], 0, NVG_PT_CORNER);
+				nvg__tesselateBezierCache(ctx, last->x,last->y, cp1[0],cp1[1], cp2[0],cp2[1], p[0],p[1], NVG_PT_CORNER);
 #else
         nvg__tesselateBezier(ctx, NULL, last->x,last->y, cp1[0],cp1[1], cp2[0],cp2[1], p[0],p[1], 0, NVG_PT_CORNER);
 #endif
@@ -2880,4 +2861,7 @@ void nvgTextMetrics(NVGcontext* ctx, float* ascender, float* descender, float* l
 	if (lineh != NULL)
 		*lineh *= invscale;
 }
+  
+} // extern "C"
+
 // vim: ft=c nu noet ts=4
