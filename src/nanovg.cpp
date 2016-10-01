@@ -2276,7 +2276,7 @@ void nvgFill(NVGcontext* ctx)
     for(auto& l : vec) {
       
       if(ctx->ncommands == l.commands.size()
-         and (memcmp(ctx->commands, l.commands.data(), ctx->ncommands) == 0)
+         and (memcmp(ctx->commands, l.commands.data(), ctx->ncommands * sizeof(float)) == 0)
          and strokeWidth == l.strokeWidth
          and state->lineCap == l.lineCap
          and state->lineJoin == l.lineJoin
